@@ -3,7 +3,14 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+
+# 统一使用北京时间（UTC+8）
+def now_cn():
+    """返回北京时间（UTC+8）"""
+    return datetime.now(timezone.utc) + timedelta(hours=8)
+
 
 # ==========================================
 # 1. 页面配置与 CSS 样式注入 (打造漂亮 UI)
@@ -122,12 +129,13 @@ def get_market_data():
 
         # 2. 市盈率 (使用 QQQ 作为 NDX 的替代，因为指数 PE 很难直接获取)
         qqq = yf.Ticker("QQQ")
-        pe = qqq.info.get('trailingPE', 30) # 如果获取失败，默认为30防止报错
-        if pe is None: pe = 30 
+        pe = qqq.info.get('trailingPE', 30)  # 如果获取失败，默认为30防止报错
+        if pe is None:
+            pe = 30
 
         # 3. 其他宏观指标
         vix = yf.Ticker("^VIX").history(period="5d")['Close'].iloc[-1]
-        us10y = yf.Ticker("^TNX").history(period="5d")['Close'].iloc[-1]  # 这里的单位通常是 % (例如 4.2)
+        us10y = yf.Ticker("^TNX").history(period="5d")['Close'].iloc[-1]  # 单位是收益率，例如 4.2
         dxy = yf.Ticker("DX-Y.NYB").history(period="5d")['Close'].iloc[-1]
 
         return {
@@ -136,11 +144,11 @@ def get_market_data():
             "vix": vix, "us10y": us10y, "dxy": dxy,
             "history": hist
         }
-    except Exception as e:
+    except Exception:
         return None
 
 # ==========================================
-# 3. 打分逻辑函数
+# 3. 打分逻辑函数（混合型：估值 + 趋势 + 回撤 + 情绪 + 宏观）
 # ==========================================
 def calculate_score(data):
     scores = {}
@@ -337,18 +345,17 @@ with col_h2:
         st.cache_data.clear()
         st.rerun()
 
-    # 在刷新按钮下面显示当前数据更新时间
+    # 在刷新按钮下面显示当前数据更新时间（北京时间）
     st.markdown(
         f"""
         <div style="text-align:right; color:#64748b; font-size:0.75rem; margin-top:5px;">
             数据更新时间：<span style="color:#34d399; font-weight:bold;">
-            {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            {now_cn().strftime('%Y-%m-%d %H:%M:%S')}
             </span>
         </div>
         """,
         unsafe_allow_html=True
     )
-
 
 # 获取数据
 with st.spinner('正在从华尔街连线 (Yahoo Finance)...'):
@@ -361,8 +368,7 @@ else:
     scores, total_score = calculate_score(data)
 
     # ========= 风险上限：极端环境直接给总分加“天花板” =========
-    # 保存一份原始总分，方便调试面板查看
-    total_score_raw = total_score
+    total_score_raw = total_score  # 保存原始总分
 
     vix = data['vix']
     us10y = data['us10y']
@@ -374,6 +380,7 @@ else:
     # 如果环境极端且总分偏高，则把总分压到防守区上限（比如 55 分）
     if macro_hard_risk and total_score > 55:
         total_score = 55
+
     # ====== 市场状态 & 宏观风险标记（给推荐逻辑用） ======
     p, ma20, ma60 = data['price'], data['ma20'], data['ma60']
 
@@ -383,10 +390,6 @@ else:
         regime_text = "下降趋势（偏熊市）"
     else:
         regime_text = "震荡区间"
-
-    vix = data['vix']
-    us10y = data['us10y']
-    dxy = data['dxy']
 
     # 宏观高风险：高波动 / 高利率 / 极强美元，则整体建议往防守降一级
     high_risk = (vix >= 28) or (us10y >= 4.8) or (dxy >= 106)
@@ -455,7 +458,6 @@ else:
             f"{risk_note}"
         )
 
-
     # --- 仪表盘区域 ---
     st.markdown("---")
     
@@ -513,14 +515,13 @@ else:
         
     # 第三行：宏观指标
     st.markdown('<div style="margin-top:15px;"></div>', unsafe_allow_html=True)
-    r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
+    r2_c1, r2_c2, r2_c3, _ = st.columns([1, 1, 1, 1])
     with r2_c1:
         render_card("10年美债收益率", f"{data['us10y']:.2f}%", "无风险利率", scores['bond'], 10)
     with r2_c2:
         render_card("美元指数 DXY", f"{data['dxy']:.2f}", "美元强度", scores['dxy'], 10)
     with r2_c3:
         render_card("趋势得分", f"{scores['trend'][0]}", "MA20/MA60 位置", scores['trend'], 20)
-    
 
     # 底部说明
     st.markdown("""
@@ -531,7 +532,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-        # ========= 调试面板：查看各因子得分与风险状态 =========
+    # ========= 调试面板：查看各因子得分与风险状态 =========
     with st.expander("调试面板：因子得分与风险状态", expanded=False):
         # 分数信息
         st.write(f"原始总分（未加风险上限）：{total_score_raw:.1f}")
@@ -541,7 +542,7 @@ else:
         if macro_hard_risk:
             st.write("⚠ 宏观极端风险条件已触发：")
             st.write(f"- VIX = {vix:.2f}（≥30 视为高波动）" if vix >= 30 else f"- VIX = {vix:.2f}")
-            st.write(f"- 10Y 国债收益率 = {us10y:.2f}%（≥5% 视为高利率）" if us10y >= 5.0 else f"- 10Y 国债收益率 = {us10y:.2f}%")
+            st.write(f"- 10年美债收益率 = {us10y:.2f}%（≥5% 视为高利率）" if us10y >= 5.0 else f"- 10年美债收益率 = {us10y:.2f}%")
             st.write(f"- 美元指数 DXY = {dxy:.2f}（≥107 视为极强美元）" if dxy >= 107 else f"- 美元指数 DXY = {dxy:.2f}")
         else:
             st.write("✅ 宏观极端风险条件未触发，风险上限未生效。")
