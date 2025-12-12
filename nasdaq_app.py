@@ -326,7 +326,7 @@ def render_card(title, value, subtext, score_info, max_score):
         </div>
         <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:0.7rem; color:#64748b;">
             <span>贡献得分</span>
-            <span style="font-family:monospace; color:#94a3b8;">{score}/{max_score}</span>
+            <span style="font-family:monospace; color:#94a3b8;">{score:.2f}/{max_score}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -470,7 +470,7 @@ else:
         <div style="background:#1e293b; border-radius:16px; padding:20px; text-align:center; height:100%; border:1px solid #334155;">
             <div style="color:#64748b; font-size:0.9rem; letter-spacing:1px; margin-bottom:10px;">量化总分</div>
             <div style="font-size:4rem; font-weight:900; color:{'#34d399' if total_score > 50 else '#f43f5e'}; text-shadow: 0 0 20px rgba(255,255,255,0.1);">
-                {total_score}
+                {total_score:.1f}
             </div>
             <div style="color:#475569; font-size:0.8rem;">满分 100</div>
             <div class="{rec_class}" style="margin-top:20px; text-align:left;">
@@ -521,7 +521,7 @@ else:
     with r2_c2:
         render_card("美元指数 DXY", f"{data['dxy']:.2f}", "美元强度", scores['dxy'], 10)
     with r2_c3:
-        render_card("趋势得分", f"{scores['trend'][0]}", "MA20/MA60 位置", scores['trend'], 20)
+        render_card("趋势得分", f"{scores['trend'][0]:.2f}", "MA20/MA60 位置", scores['trend'], 20)
 
     # 底部说明
     st.markdown("""
@@ -551,3 +551,4 @@ else:
         st.write("各因子详细得分：")
         for name, (score_k, status_k, _, _) in scores.items():
             st.write(f"- {name}: {score_k} 分（{status_k}）")
+
