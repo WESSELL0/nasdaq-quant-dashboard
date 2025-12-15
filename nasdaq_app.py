@@ -150,159 +150,206 @@ def get_market_data():
 # ==========================================
 # 3. 打分逻辑函数（混合型：估值 + 趋势 + 回撤 + 情绪 + 宏观）
 # ==========================================
+def smooth(low_score, high_score, x, x_low, x_high):
+    """
+    连续化线性插值：
+    - x <= x_low  -> low_score
+    - x >= x_high -> high_score
+    - 中间线性插值
+    """
+    if x <= x_low:
+        return float(low_score)
+    if x >= x_high:
+        return float(high_score)
+    ratio = (x - x_low) / (x_high - x_low)
+    return float(low_score + ratio * (high_score - low_score))
+
+
+def clamp(x, lo, hi):
+    return float(max(lo, min(hi, x)))
+
+
 def calculate_score(data):
+    """
+    连续化小数打分（总分理论上<=100，且做硬性 cap）
+    各因子最大分与 UI 进度条一致：
+      PE 25, Trend 20, DD 20, RSI 7, VIX 8, Bond 10, DXY 10  -> 合计 100
+    """
     scores = {}
-    
-    # 方便后面统一使用
-    p = data['price']
-    ma20 = data['ma20']
-    ma60 = data['ma60']
-    rsi = data['rsi']
-    d = data['drawdown']
-    v = data['vix']
-    u = data['us10y']
-    dx = data['dxy']
-    pe = data['pe']
-    
-    # ========== 1. PE 得分（保持你原来的逻辑不动） ==========
+
+    # 数据
+    p = float(data['price'])
+    ma20 = float(data['ma20'])
+    ma60 = float(data['ma60'])
+    rsi = float(data['rsi'])
+    d = float(data['drawdown'])
+    v = float(data['vix'])
+    u = float(data['us10y'])
+    dx = float(data['dxy'])
+    pe = float(data['pe'])
+
+    # ========== 1) PE（保留原档位含义，但档内连续化；范围 [5,25]） ==========
     if pe < 22:
-        scores['pe'] = (25, '极低估', 'bg-green', '#34d399')
+        pe_score = smooth(22, 25, pe, 15, 22)
+        scores['pe'] = (pe_score, '极低估', 'bg-green', '#34d399')
     elif pe < 25:
-        scores['pe'] = (20, '低估', 'bg-green', '#34d399')
+        pe_score = smooth(20, 22, pe, 22, 25)
+        scores['pe'] = (pe_score, '低估', 'bg-green', '#34d399')
     elif pe < 28:
-        scores['pe'] = (15, '合理', 'bg-yellow', '#fbbf24')
+        pe_score = smooth(15, 20, pe, 25, 28)
+        scores['pe'] = (pe_score, '合理', 'bg-yellow', '#fbbf24')
     elif pe < 32:
-        scores['pe'] = (10, '偏高', 'bg-yellow', '#fbbf24')
+        pe_score = smooth(10, 15, pe, 28, 32)
+        scores['pe'] = (pe_score, '偏高', 'bg-yellow', '#fbbf24')
     else:
-        scores['pe'] = (5, '高估泡沫', 'bg-red', '#fb7185')
-    
-    # ========== 2. 趋势因子：牛/熊/震荡 + 左右侧结合 ==========
-    # 简单定义市场状态：看 ma20 与 ma60 的关系
+        pe_score = smooth(5, 10, pe, 32, 45)
+        scores['pe'] = (pe_score, '高估泡沫', 'bg-red', '#fb7185')
+
+    # ========== regime：牛/熊/震荡 ==========
     if ma20 > ma60 * 1.01:
-        regime = 'bull'   # 上升趋势
+        regime = 'bull'
     elif ma20 < ma60 * 0.99:
-        regime = 'bear'   # 下降趋势
+        regime = 'bear'
     else:
-        regime = 'range'  # 震荡
-    
+        regime = 'range'
+
+    # 价格相对均线的偏离（%）
+    dist20 = (p - ma20) / ma20 * 100.0
+    dist60 = (p - ma60) / ma60 * 100.0
+
+    # ========== 2) 趋势 Trend（范围 [0,20]） ==========
     if regime == 'bull':
-        # 牛市：右侧趋势 + 回调买点并存
-        if p > ma20:
-            scores['trend'] = (18, '强势上升（右侧）', 'bg-yellow', '#fbbf24')
-        elif p > ma60:
-            scores['trend'] = (20, '上升趋势回调（偏买点）', 'bg-green', '#34d399')
+        if p >= ma20:
+            # 越高于 MA20 越偏“追涨风险”，分数从 18 -> 12
+            trend_score = smooth(18, 12, dist20, 0, 5)
+            status = '强势上行'
+            bg = 'bg-yellow'
+        elif p >= ma60:
+            # 回调区：越接近 MA60（更深回调）越接近 20
+            trend_score = smooth(16, 20, -dist20, 0, 5)
+            status = '上升回调（偏买点）'
+            bg = 'bg-green'
         else:
-            scores['trend'] = (8, '跌破关键均线，减仓观察', 'bg-red', '#fb7185')
+            # 跌破 MA60：越深越低
+            trend_score = smooth(12, 4, -dist60, 0, 10)
+            status = '跌破关键均线'
+            bg = 'bg-red'
     elif regime == 'bear':
-        # 熊市：反弹减仓为主，左侧只给少量分数
-        if p > ma20:
-            scores['trend'] = (10, '空头反弹，适合逢高减仓', 'bg-yellow', '#fbbf24')
-        elif p > ma60:
-            scores['trend'] = (6, '弱势反弹，谨慎左侧', 'bg-yellow', '#fbbf24')
+        if p >= ma20:
+            # 空头反弹：越高越像“减仓窗口”，分数不高
+            trend_score = smooth(8, 10, dist20, 0, 5)
+            status = '空头反弹'
+            bg = 'bg-yellow'
+        elif p >= ma60:
+            trend_score = smooth(4, 8, dist60, 0, 5)
+            status = '弱反弹'
+            bg = 'bg-yellow'
         else:
-            scores['trend'] = (3, '下跌趋势延续，观望为主', 'bg-red', '#fb7185')
+            trend_score = smooth(4, 0, -dist20, 0, 10)
+            status = '下跌延续'
+            bg = 'bg-red'
     else:
-        # 震荡市：中轴附近最安全，下沿偏左侧机会
-        if abs(p - ma20) / ma20 < 0.01:
-            scores['trend'] = (12, '震荡中枢附近', 'bg-yellow', '#fbbf24')
-        elif p < ma20:
-            scores['trend'] = (16, '震荡区间下沿（偏左侧）', 'bg-green', '#34d399')
+        # 震荡：靠近 MA20 中轴更安全；在下沿（dist20<0）略加分
+        base = 14.0 - abs(dist20) * 2.0
+        if dist20 < 0:
+            base += 2.0
         else:
-            scores['trend'] = (10, '震荡区间上沿，控制节奏', 'bg-yellow', '#fbbf24')
-    
-    # ========== 3. 回撤因子：结合牛熊，避免“越跌越高分”极端 ==========
-    # d 为相对 252 日高点的回撤百分比
-    if regime == 'bull':
-        if 8 <= d <= 22:
-            scores['dd'] = (20, '牛市中等回撤（健康洗牌）', 'bg-green', '#34d399')
-        elif 4 <= d < 8:
-            scores['dd'] = (15, '小幅回撤，适当分批', 'bg-green', '#34d399')
-        elif 0 < d < 4:
-            scores['dd'] = (10, '新高附近，注意节奏', 'bg-yellow', '#fbbf24')
-        else:  # 极深回撤，可能趋势破坏
-            scores['dd'] = (12, '大幅回撤，确认趋势再出手', 'bg-yellow', '#fbbf24')
-    elif regime == 'bear':
-        if d >= 20:
-            scores['dd'] = (8, '深度下跌中，风险仍大', 'bg-red', '#fb7185')
-        elif d >= 10:
-            scores['dd'] = (6, '中度下跌，左侧风险高', 'bg-red', '#fb7185')
-        elif d > 0:
-            scores['dd'] = (4, '弱势震荡，观望为主', 'bg-yellow', '#fbbf24')
-        else:
-            scores['dd'] = (2, '局部反弹，新高不具持续性', 'bg-yellow', '#fbbf24')
+            base -= 1.0
+        trend_score = clamp(base, 0, 20)
+        status = '震荡区间'
+        bg = 'bg-yellow' if abs(dist20) < 2 else ('bg-green' if dist20 < 0 else 'bg-yellow')
+
+    scores['trend'] = (clamp(trend_score, 0, 20), status, bg, '#34d399')
+
+        # ========== 3) 回撤 DD（范围 [0,20]；连续化但对齐旧分档锚点） ==========
+    # 目标：连续化后仍接近旧版分布（避免常态下被系统性压低）
+    # 旧版锚点大致：0~5%≈5分；5~10%≈10分；10~15%≈15分；>=15%≈20分
+    if d <= 0:
+        dd_score = 0.0
+    elif d < 5:
+        dd_score = smooth(5.0, 10.0, d, 0.0, 5.0)
+    elif d < 10:
+        dd_score = smooth(10.0, 15.0, d, 5.0, 10.0)
+    elif d < 15:
+        dd_score = smooth(15.0, 20.0, d, 10.0, 15.0)
     else:
-        # 震荡市：中等回撤最好，小回撤一般，极深要警惕
-        if 6 <= d <= 15:
-            scores['dd'] = (18, '震荡区间中等回撤', 'bg-green', '#34d399')
-        elif 2 <= d < 6:
-            scores['dd'] = (12, '轻微回撤', 'bg-yellow', '#fbbf24')
-        elif d == 0:
-            scores['dd'] = (8, '区间高位附近', 'bg-yellow', '#fbbf24')
-        else:
-            scores['dd'] = (10, '大幅回撤但趋势不明', 'bg-yellow', '#fbbf24')
-    
-    # ========== 4. RSI 因子：牛市看回调、熊市看风险 ==========
-    if regime == 'bull':
-        if 40 <= rsi <= 60:
-            scores['rsi'] = (7, '上涨中的健康震荡', 'bg-green', '#34d399')
-        elif 30 <= rsi < 40:
-            scores['rsi'] = (6, '轻度超卖，左侧机会', 'bg-green', '#34d399')
-        elif 60 < rsi <= 70:
-            scores['rsi'] = (4, '偏强，谨慎追高', 'bg-yellow', '#fbbf24')
-        elif rsi < 30:
-            scores['rsi'] = (5, '急跌区，分批左侧+严格风控', 'bg-yellow', '#fbbf24')
-        else:  # >70
-            scores['rsi'] = (2, '严重超买，注意回撤风险', 'bg-red', '#fb7185')
-    elif regime == 'bear':
-        if rsi < 30:
-            scores['rsi'] = (3, '熊市超卖，反弹不一定强', 'bg-red', '#fb7185')
-        elif 30 <= rsi <= 50:
-            scores['rsi'] = (4, '弱势震荡', 'bg-yellow', '#fbbf24')
-        elif 50 < rsi <= 60:
-            scores['rsi'] = (5, '空头反弹，适合减仓', 'bg-yellow', '#fbbf24')
-        else:
-            scores['rsi'] = (2, '高位超买，注意二次杀跌', 'bg-red', '#fb7185')
+        dd_score = 20.0
+
+    if d >= 15:
+        dd_status, dd_bg = '深度回撤', 'bg-green'
+    elif d >= 10:
+        dd_status, dd_bg = '中度回撤', 'bg-green'
+    elif d >= 5:
+        dd_status, dd_bg = '轻微回撤', 'bg-yellow'
+    elif d > 0:
+        dd_status, dd_bg = '微跌', 'bg-yellow'
     else:
-        if 40 <= rsi <= 60:
-            scores['rsi'] = (6, '区间震荡中值', 'bg-yellow', '#fbbf24')
-        elif rsi < 40:
-            scores['rsi'] = (5, '震荡偏弱，左侧轻仓', 'bg-green', '#34d399')
-        else:
-            scores['rsi'] = (3, '震荡偏强，适度收缩', 'bg-yellow', '#fbbf24')
-    
-    # ========== 5. VIX 因子：改为“风险过滤”思路，高 VIX = 高风险 ==========
+        dd_status, dd_bg = '新高附近', 'bg-red'
+
+    scores['dd'] = (clamp(dd_score, 0, 20), dd_status, dd_bg, '#34d399')
+
+    # ========== 4) RSI（范围 [0,7]） ==========
+    if rsi < 30:
+        rsi_score = smooth(7, 5.5, rsi, 10, 30)
+        rsi_status, rsi_bg = '超卖', 'bg-green'
+    elif rsi <= 50:
+        rsi_score = smooth(5.5, 4.5, rsi, 30, 50)
+        rsi_status, rsi_bg = '偏弱', 'bg-green'
+    elif rsi <= 70:
+        rsi_score = smooth(4.5, 2.5, rsi, 50, 70)
+        rsi_status, rsi_bg = '偏强', 'bg-yellow'
+    else:
+        rsi_score = smooth(2.5, 0.0, rsi, 70, 90)
+        rsi_status, rsi_bg = '超买', 'bg-red'
+    scores['rsi'] = (clamp(rsi_score, 0, 7), rsi_status, rsi_bg, '#34d399')
+
+    # ========== 5) VIX（范围 [0,8]；高波动降分） ==========
     if v < 12:
-        scores['vix'] = (6, '低波动环境，情绪平稳', 'bg-green', '#34d399')
+        vix_score = smooth(7, 8, 12 - v, 0, 6)
+        vix_status, vix_bg = '低波动', 'bg-green'
     elif v < 20:
-        scores['vix'] = (8, '中等波动，正常交易区', 'bg-green', '#34d399')
+        vix_score = smooth(8, 5, v, 12, 20)
+        vix_status, vix_bg = '正常波动', 'bg-green'
     elif v < 28:
-        scores['vix'] = (4, '波动加大，注意仓位', 'bg-yellow', '#fbbf24')
+        vix_score = smooth(5, 2, v, 20, 28)
+        vix_status, vix_bg = '波动加大', 'bg-yellow'
     else:
-        scores['vix'] = (0, '恐慌区，优先考虑风控', 'bg-red', '#fb7185')
-    
-    # ========== 6. 美债与美元：组合成“宏观压力”两个子因子 ==========
-    # 10Y 国债：利率越高，对估值压力越大
-    if u < 3.5:
-        scores['bond'] = (10, '利率友好，对成长股友好', 'bg-green', '#34d399')
-    elif u < 4.2:
-        scores['bond'] = (8, '中性利率水平', 'bg-yellow', '#fbbf24')
-    elif u < 4.8:
-        scores['bond'] = (5, '偏高利率，估值受压', 'bg-yellow', '#fbbf24')
+        vix_score = smooth(2, 0, v, 28, 45)
+        vix_status, vix_bg = '恐慌区', 'bg-red'
+    scores['vix'] = (clamp(vix_score, 0, 8), vix_status, vix_bg, '#34d399')
+
+    # ========== 6) 10Y 美债（范围 [0,10]；利率越高越压分） ==========
+    if u <= 3.5:
+        bond_score, bond_status, bond_bg = 10.0, '利率友好', 'bg-green'
+    elif u <= 4.2:
+        bond_score = smooth(10, 7.5, u, 3.5, 4.2)
+        bond_status, bond_bg = '中性利率', 'bg-yellow'
+    elif u <= 4.8:
+        bond_score = smooth(7.5, 4.5, u, 4.2, 4.8)
+        bond_status, bond_bg = '偏高利率', 'bg-yellow'
     else:
-        scores['bond'] = (2, '高利率环境，压制风险资产', 'bg-red', '#fb7185')
-    
-    # 美元指数：强美元 → 全球流动性偏紧
-    if dx < 100:
-        scores['dxy'] = (10, '弱美元利好风险资产', 'bg-green', '#34d399')
-    elif dx < 104:
-        scores['dxy'] = (8, '中性美元环境', 'bg-yellow', '#fbbf24')
-    elif dx < 106:
-        scores['dxy'] = (5, '偏强美元，对美股形成压力', 'bg-yellow', '#fbbf24')
+        bond_score = smooth(4.5, 0.0, u, 4.8, 6.0)
+        bond_status, bond_bg = '高利率压制', 'bg-red'
+    scores['bond'] = (clamp(bond_score, 0, 10), bond_status, bond_bg, '#34d399')
+
+    # ========== 7) DXY（范围 [0,10]；美元越强越压分） ==========
+    if dx <= 100:
+        dxy_score, dxy_status, dxy_bg = 10.0, '弱美元利好', 'bg-green'
+    elif dx <= 104:
+        dxy_score = smooth(10, 7.5, dx, 100, 104)
+        dxy_status, dxy_bg = '中性美元', 'bg-yellow'
+    elif dx <= 106:
+        dxy_score = smooth(7.5, 4.0, dx, 104, 106)
+        dxy_status, dxy_bg = '强美元', 'bg-yellow'
     else:
-        scores['dxy'] = (2, '极强美元，全球流动性偏紧', 'bg-red', '#fb7185')
-    
-    # ========== 汇总总分 ==========
-    total = sum(item[0] for item in scores.values())
+        dxy_score = smooth(4.0, 0.0, dx, 106, 112)
+        dxy_status, dxy_bg = '极强美元', 'bg-red'
+    scores['dxy'] = (clamp(dxy_score, 0, 10), dxy_status, dxy_bg, '#34d399')
+
+    # ========== 汇总总分（硬 cap：<=100） ==========
+    total = float(sum(item[0] for item in scores.values()))
+    total = clamp(total, 0, 100)
+
     return scores, total
 
 
@@ -550,6 +597,4 @@ else:
         st.write("---")
         st.write("各因子详细得分：")
         for name, (score_k, status_k, _, _) in scores.items():
-            st.write(f"- {name}: {score_k} 分（{status_k}）")
-
-
+            st.write(f"- {name}: {score_k:.2f} 分（{status_k}）")
