@@ -148,9 +148,9 @@ st.markdown(
     .rec-warning { background: rgba(245, 158, 11, 0.10); border-color: #f59e0b; color: #fbbf24; }
     .rec-error { background: rgba(244, 63, 94, 0.10); border-color: #f43f5e; color: #fb7185; }
 
-    /* 左右两列等高：固定 500px */
+    /* 左右两列等高：固定 550px */
     .equal-box {
-        height: 500px;
+        height: 550px;
         border-radius:16px;
         border:1px solid #334155;
         background:#1e293b;
@@ -804,7 +804,7 @@ with col2:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=20, r=20, t=50, b=20),
-        height=500,
+        height=550,
         xaxis=dict(showgrid=False, color="#64748b"),
         yaxis=dict(showgrid=True, gridcolor="#334155", color="#64748b"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -851,4 +851,5 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
