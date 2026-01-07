@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
 
-
 # ==========================================
 # 0. 时间与小工具
 # ==========================================
@@ -14,7 +13,6 @@ CN_TZ = timezone(timedelta(hours=8))
 
 
 def now_cn() -> datetime:
-    """北京时间（UTC+8）"""
     return datetime.now(CN_TZ)
 
 
@@ -26,14 +24,12 @@ def is_finite(x) -> bool:
 
 
 def clamp(x, lo, hi) -> float:
-    """对 NaN 做防护：NaN -> lo（避免评分被错误夹成满分）"""
     if not is_finite(x):
         return float(lo)
     return float(max(lo, min(hi, float(x))))
 
 
 def smooth(low_score, high_score, x, x_low, x_high) -> float:
-    """区间线性插值（连续化）"""
     x = float(x)
     if x <= x_low:
         return float(low_score)
@@ -44,7 +40,6 @@ def smooth(low_score, high_score, x, x_low, x_high) -> float:
 
 
 def percentile_rank(x, series) -> float | None:
-    """x 在 series 中的分位（0~100），忽略 NaN。"""
     s = np.asarray(series, dtype=float)
     s = s[np.isfinite(s)]
     if s.size == 0:
@@ -53,10 +48,6 @@ def percentile_rank(x, series) -> float | None:
 
 
 def stooq_daily(symbol: str) -> pd.DataFrame | None:
-    """
-    从 Stooq 下载日线（避免 Yahoo 访问受限时整个应用不可用）
-    返回列：Open/High/Low/Close/Volume（若有），索引为 DatetimeIndex（升序）。
-    """
     try:
         s = quote_plus(symbol.lower())
         url = f"https://stooq.com/q/d/l/?s={s}&i=d"
@@ -74,7 +65,6 @@ def stooq_daily(symbol: str) -> pd.DataFrame | None:
 
 
 def pick_last_close(candidates: list[str]) -> tuple[float | None, str | None]:
-    """从一组 stooq 符号里挑一个能用的 Close 最新值。"""
     for sym in candidates:
         df = stooq_daily(sym)
         if df is None or df.empty or "Close" not in df.columns:
@@ -104,10 +94,8 @@ st.markdown(
         border: 1px solid #334155;
         border-radius: 12px;
         padding: 16px;
-        transition: transform 0.2s;
         height: 100%;
     }
-    .metric-card:hover { border-color: #475569; }
 
     .metric-title {
         color: #94a3b8;
@@ -150,41 +138,44 @@ st.markdown(
     }
 
     .rec-card {
-        padding: 24px;
-        border-radius: 16px;
+        padding: 16px;
+        border-radius: 12px;
         border: 1px solid;
-        margin-bottom: 20px;
+        margin-top: 16px;
     }
-    .rec-success { background: rgba(16, 185, 129, 0.1); border-color: #10b981; color: #34d399; }
-    .rec-info { background: rgba(59, 130, 246, 0.1); border-color: #3b82f6; color: #60a5fa; }
-    .rec-warning { background: rgba(245, 158, 11, 0.1); border-color: #f59e0b; color: #fbbf24; }
-    .rec-error { background: rgba(244, 63, 94, 0.1); border-color: #f43f5e; color: #fb7185; }
+    .rec-success { background: rgba(16, 185, 129, 0.10); border-color: #10b981; color: #34d399; }
+    .rec-info { background: rgba(59, 130, 246, 0.10); border-color: #3b82f6; color: #60a5fa; }
+    .rec-warning { background: rgba(245, 158, 11, 0.10); border-color: #f59e0b; color: #fbbf24; }
+    .rec-error { background: rgba(244, 63, 94, 0.10); border-color: #f43f5e; color: #fb7185; }
+
+    /* 左右两列等高：固定 360px */
+    .equal-box {
+        height: 360px;
+        border-radius:16px;
+        border:1px solid #334155;
+        background:#1e293b;
+        padding:18px;
+        box-sizing:border-box;
+    }
+    .equal-scroll {
+        height: 210px; /* 推荐区固定高度，超出滚动 */
+        overflow:auto;
+        margin-top: 14px;
+        padding-right: 6px;
+    }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-
 # ==========================================
 # 2. 数据获取（yfinance + Stooq 兜底 + 缺失防护）
 # ==========================================
-NEUTRAL = {
-    "vix": 20.0,
-    "us10y": 4.2,
-    "dxy": 103.0,
-    "pe": 30.0,
-}
+NEUTRAL = {"vix": 20.0, "us10y": 4.2, "dxy": 103.0, "pe": 30.0}
 
 
 @st.cache_data(ttl=600)
 def get_market_data():
-    """
-    返回 dict:
-      price, ma20, ma60, rsi, drawdown, pe, vix, us10y, dxy, history,
-      data_source,
-      missing_vix, missing_us10y, missing_dxy
-    """
-    # 先尝试 Yahoo（yfinance）
     try:
         ndx = yf.Ticker("^NDX")
         hist = ndx.history(period="1y")
@@ -238,7 +229,6 @@ def get_market_data():
             "missing_dxy": missing_dxy,
         }
     except Exception:
-        # Stooq 兜底（NDX）
         try:
             ndx_df = stooq_daily("^ndx")
             if ndx_df is None or ndx_df.empty:
@@ -261,8 +251,8 @@ def get_market_data():
             drawdown = float(abs((close / rolling_max - 1.0).iloc[-1] * 100))
 
             vix_val, _ = pick_last_close(["vix", "^vix", "vi.f", "vx.f", "vxx.us"])
-            tnx_val, _ = pick_last_close(["10yusy", "10yusy.b", "us10y", "^tnx", "tnx"])
-            dxy_val, _ = pick_last_close(["dxy", "dx.f", "dx", "usdidx", "uup.us"])
+            tnx_val, _ = pick_last_close(["10yusy", "us10y", "^tnx", "tnx"])
+            dxy_val, _ = pick_last_close(["dxy", "dx.f", "usdidx", "uup.us"])
 
             missing_vix = vix_val is None
             missing_us10y = tnx_val is None
@@ -301,11 +291,6 @@ def get_market_data():
 # 3. 连续化打分（总分<=100）
 # ==========================================
 def calculate_score(data):
-    """
-    连续化小数打分（总分<=100，硬 cap）
-    各因子最大分：
-      PE 25, Trend 20, DD 20, RSI 7, VIX 8, Bond 10, DXY 10 -> 合计 100
-    """
     scores = {}
 
     p = float(data["price"])
@@ -404,7 +389,7 @@ def calculate_score(data):
     # 5) VIX
     if miss_vix:
         vix_score = 4.0
-        vix_status, vix_bg = "缺失（按中性）", "bg-yellow"
+        vix_status, vix_bg = "缺失", "bg-yellow"
     else:
         if v < 12:
             vix_score = smooth(7, 8, 12 - v, 0, 6)
@@ -423,7 +408,7 @@ def calculate_score(data):
     # 6) Bond
     if miss_us10y:
         bond_score = 6.5
-        bond_status, bond_bg = "缺失（按中性）", "bg-yellow"
+        bond_status, bond_bg = "缺失", "bg-yellow"
     else:
         if u <= 3.5:
             bond_score, bond_status, bond_bg = 10.0, "利率友好", "bg-green"
@@ -441,7 +426,7 @@ def calculate_score(data):
     # 7) DXY
     if miss_dxy:
         dxy_score = 6.5
-        dxy_status, dxy_bg = "缺失（按中性）", "bg-yellow"
+        dxy_status, dxy_bg = "缺失", "bg-yellow"
     else:
         if dx <= 100:
             dxy_score, dxy_status, dxy_bg = 10.0, "弱美元", "bg-green"
@@ -462,7 +447,7 @@ def calculate_score(data):
 
 
 # ==========================================
-# 4. 历史分位（yfinance + Stooq 兜底；宏观缺失用中性填充）
+# 4. 历史分位（仅展示，不参与倍率决策）
 # ==========================================
 def _score_total_from_row(p, ma20, ma60, rsi, d, v, u, dx, pe):
     fake = {
@@ -482,27 +467,19 @@ def get_calibration_series(pe_for_history: float):
         ndx = yf.download("^NDX", period="5y", interval="1d", progress=False)
         if ndx is None or ndx.empty:
             raise RuntimeError("ndx empty")
-
-        vix = yf.download("^VIX", period="5y", interval="1d", progress=False)
-        tnx = yf.download("^TNX", period="5y", interval="1d", progress=False)
-        dxy = yf.download("DX-Y.NYB", period="5y", interval="1d", progress=False)
-
         df = pd.DataFrame(index=ndx.index)
         df["ndx"] = ndx["Close"]
-        df["vix"] = (vix["Close"].reindex(df.index).ffill() if (vix is not None and not vix.empty) else NEUTRAL["vix"])
-        df["us10y"] = (tnx["Close"].reindex(df.index).ffill() if (tnx is not None and not tnx.empty) else NEUTRAL["us10y"])
-        df["dxy"] = (dxy["Close"].reindex(df.index).ffill() if (dxy is not None and not dxy.empty) else NEUTRAL["dxy"])
-
     except Exception:
         ndx_df = stooq_daily("^ndx")
         if ndx_df is None or ndx_df.empty:
             return None
-
         df = ndx_df.tail(1260).copy()
         df = df.rename(columns={"Close": "ndx"})
-        df["vix"] = float(NEUTRAL["vix"])
-        df["us10y"] = float(NEUTRAL["us10y"])
-        df["dxy"] = float(NEUTRAL["dxy"])
+
+    # 宏观因子不给也能算分位：用中性填充，确保可算
+    df["vix"] = float(NEUTRAL["vix"])
+    df["us10y"] = float(NEUTRAL["us10y"])
+    df["dxy"] = float(NEUTRAL["dxy"])
 
     df["ma20"] = df["ndx"].rolling(20).mean()
     df["ma60"] = df["ndx"].rolling(60).mean()
@@ -540,39 +517,25 @@ def get_calibration_series(pe_for_history: float):
 
 
 # ==========================================
-# 5. 倍率与建议文案（0 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0）
+# 5. 倍率决策（只看总分区间）+ 风险上限
 # ==========================================
-def decide_mult_by_pct(pct_5y: float | None, total_raw: float, macro_hard_risk: bool) -> float:
-    if pct_5y is not None:
-        if pct_5y >= 90:
-            mult = 2.0
-        elif pct_5y >= 80:
-            mult = 1.75
-        elif pct_5y >= 70:
-            mult = 1.5
-        elif pct_5y >= 60:
-            mult = 1.25
-        elif pct_5y >= 40:
-            mult = 1.0
-        else:
-            mult = 0.0
+def decide_mult_by_score(total_score: float, macro_hard_risk: bool) -> float:
+    s = float(total_score)
+    if s < 40:
+        mult = 0.0
+    elif s < 60:
+        mult = 1.0
+    elif s < 70:
+        mult = 1.25
+    elif s < 80:
+        mult = 1.5
+    elif s < 90:
+        mult = 1.75
     else:
-        if total_raw >= 90:
-            mult = 2.0
-        elif total_raw >= 80:
-            mult = 1.75
-        elif total_raw >= 70:
-            mult = 1.5
-        elif total_raw >= 60:
-            mult = 1.25
-        elif total_raw >= 40:
-            mult = 1.0
-        else:
-            mult = 0.0
+        mult = 2.0
 
     if macro_hard_risk:
         mult = min(mult, 1.0)
-
     return float(mult)
 
 
@@ -596,77 +559,82 @@ def build_ac_text(mult: float) -> tuple[str, str]:
     if mult <= 0:
         a = (
             "A类：停止投（0x）<br>"
-            "• 本周不新增，底仓继续持有。<br>"
-            "• 等回到“正常/加投”区间再恢复。"
+            "• 本周不新增。<br>"
+            "• 底仓继续持有。<br>"
+            "• 等回到“正常/加投”再恢复。"
         )
         c = (
             "C类：停止投（0x）<br>"
-            "• 本周不新增，避免在高风险阶段加码。<br>"
-            "• 若你用 C 做短期，等信号转回再开。"
+            "• 本周不新增。<br>"
+            "• 避免高风险阶段加码。<br>"
+            "• 信号转回再开。"
         )
         return a, c
 
-    if mult <= 1.0:
+    if mult == 1.0:
         a = (
             "A类：正常投（1.0x）<br>"
-            "• 维持每周基准金额即可。<br>"
-            "• 重点是长期复利，不需要追涨杀跌。"
+            "• 维持每周基准金额。<br>"
+            "• 以长期底仓为主。"
         )
         c = (
             "C类：正常投（1.0x）<br>"
-            "• 只做小额补充即可。<br>"
-            "• 如果你会做波段，记得控制持有周期。"
+            "• 小额补充即可。<br>"
+            "• 控制持有周期。"
         )
         return a, c
 
-    if mult <= 1.25:
+    if mult == 1.25:
         a = (
             "A类：加投（1.25x）<br>"
-            "• 处在偏便宜/偏安全的区间。<br>"
-            "• 比基准多投 25%，用来提高长期成本优势。"
+            "• 偏便宜区间。<br>"
+            "• 当周额度 +25%。<br>"
+            "• 优先加在 A 类。"
         )
         c = (
             "C类：加投（1.25x）<br>"
-            "• 可以小幅加速，但别把它当长期主仓。<br>"
-            "• 更适合短期“加一点”，然后回归正常投。"
+            "• 小仓位加速。<br>"
+            "• 不做长期主仓。"
         )
         return a, c
 
-    if mult <= 1.5:
+    if mult == 1.5:
         a = (
             "A类：加投（1.5x）<br>"
-            "• 属于明显更便宜的区间。<br>"
-            "• 建议优先加在 A 类，拿更长周期。"
+            "• 明显更便宜。<br>"
+            "• 额度拉高，拿更长周期。"
         )
         c = (
             "C类：加投（1.5x）<br>"
-            "• 适合短期加速，但要有退出纪律。<br>"
-            "• 目标是“加速买入”，不是“长期持有”。"
+            "• 适合短期加速。<br>"
+            "• 要有退出纪律。"
         )
         return a, c
 
-    if mult <= 1.75:
+    if mult == 1.75:
         a = (
             "A类：重仓加投（1.75x）<br>"
-            "• 处在非常有性价比的位置。<br>"
-            "• 把当周额度拉高，用长期持有换更低成本。"
+            "• 性价比很高。<br>"
+            "• 当周额度显著上调。<br>"
+            "• 继续以长期持有为主。"
         )
         c = (
             "C类：重仓加投（1.75x）<br>"
-            "• 只建议小仓位使用，避免长期拖着。<br>"
-            "• 如果你不做波段，建议把加速主要放 A 类。"
+            "• 仅建议小仓位。<br>"
+            "• 严格控制持有时间。"
         )
         return a, c
 
     a = (
         "A类：重仓加投（2.0x）<br>"
-        "• 极端便宜/极端安全区间。<br>"
-        "• 直接把当周额度拉到 2 倍，长期拿住。"
+        "• 极端便宜区间。<br>"
+        "• 当周额度直接 2 倍。<br>"
+        "• 长期拿住。"
     )
     c = (
         "C类：重仓加投（2.0x）<br>"
-        "• 仅适用于你明确要做短期加速。<br>"
-        "• 如果不做波段，建议 2x 主要放在 A 类。"
+        "• 仅适合短期加速。<br>"
+        "• 不做波段就别用大仓。"
     )
     return a, c
 
@@ -677,7 +645,6 @@ def build_ac_text(mult: float) -> tuple[str, str]:
 def render_card(title, value, subtext, score_info, max_score):
     score, status, bg_class, bar_color = score_info
     pct = (float(score) / max_score) * 100
-
     st.markdown(
         f"""
     <div class="metric-card">
@@ -688,7 +655,7 @@ def render_card(title, value, subtext, score_info, max_score):
         <div class="metric-value">{value}</div>
         <div class="metric-sub">{subtext}</div>
         <div class="progress-bg">
-            <div style="width: {pct}%; height: 100%; background-color: {bar_color}; border-radius: 3px;"></div>
+            <div style="width:{pct}%; height:100%; background-color:{bar_color}; border-radius:3px;"></div>
         </div>
         <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:0.7rem; color:#64748b;">
             <span>得分</span>
@@ -706,7 +673,7 @@ def render_card(title, value, subtext, score_info, max_score):
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.markdown('<h1 style="color:#34d399; margin-bottom:0;">🦅 纳斯达克 100 决策台</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#64748b; margin-top:5px;">wyh的纳斯达克看板</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#64748b; margin-top:5px;">wyh的纳斯达克看板建议</p>', unsafe_allow_html=True)
 
 with col_h2:
     if st.button("🔄 刷新数据"):
@@ -731,18 +698,13 @@ if data is None:
     st.error("无法获取数据：请检查网络连接，或确认能访问 Yahoo Finance / Stooq。")
     st.stop()
 
-scores, total_raw = calculate_score(data)
+scores, total_score = calculate_score(data)
 
-# 宏观极端环境：风险上限（不允许加速）
+# 宏观极端环境：风险上限（只限制倍率，不改总分显示）
 vix = float(data["vix"])
 us10y = float(data["us10y"])
 dxy = float(data["dxy"])
 macro_hard_risk = (vix >= 30) or (us10y >= 5.0) or (dxy >= 107)
-
-# 显示口径：极端宏观时视觉提醒（不改 raw 分数）
-total_display = float(total_raw)
-if macro_hard_risk and total_display > 55:
-    total_display = 55.0
 
 # 市场状态
 p, ma20, ma60 = float(data["price"]), float(data["ma20"]), float(data["ma60"])
@@ -753,30 +715,28 @@ elif ma20 < ma60 * 0.99:
 else:
     regime_text = "震荡区间"
 
-# 过去5年分位（尽量保证有值）
+# 过去5年分位（仅展示）
 calib = get_calibration_series(pe_for_history=float(data["pe"]))
-pct_5y = None if calib is None else percentile_rank(total_raw, calib["score_series"].values)
+pct_5y = None if calib is None else percentile_rank(total_score, calib["score_series"].values)
 pct_text = "—" if pct_5y is None else f"{pct_5y:.0f}"
 
-# 倍率建议
-mult = decide_mult_by_pct(pct_5y=pct_5y, total_raw=total_raw, macro_hard_risk=macro_hard_risk)
+# 倍率建议：只看总分区间
+mult = decide_mult_by_score(total_score=total_score, macro_hard_risk=macro_hard_risk)
 rec_class, icon = rec_style(mult)
 
-# 区间文字（新增 1.25 与 1.75）
-band_text = "区间：0–40 停投｜40–60 1.0x｜60–70 1.25x｜70–80 1.5x｜80–90 1.75x｜90–100 2.0x"
+band_text = "区间：0–40 0x｜40–60 1.0x｜60–70 1.25x｜70–80 1.5x｜80–90 1.75x｜90–100 2.0x"
 
-# A/C 文案（更细、更短）
 a_text, c_text = build_ac_text(mult)
 
 risk_line = ""
-if macro_hard_risk:
-    risk_line = "⚠ 风险上限触发：本周不加速（最多 1.0x）。"
+if macro_hard_risk and mult > 1.0:
+    risk_line = "⚠ 风险上限：本周最多 1.0x。"
 
 rec_title = f"{icon} 本周建议：{mult_to_label(mult)}"
 rec_msg = (
     f"市场状态：{regime_text}<br>"
-    f"原始总分：{total_raw:.1f} / 100；显示总分：{total_display:.1f} / 100<br>"
-    f"过去5年分位：{pct_text} / 100（越高=越偏“便宜/更适合加投”）<br><br>"
+    f"总分：{total_score:.1f} / 100<br>"
+    f"过去5年分位：{pct_text} / 100<br><br>"
     f"{a_text}<br><br>{c_text}"
 )
 if risk_line:
@@ -784,22 +744,20 @@ if risk_line:
 
 st.markdown("---")
 
-# 第一行：总分与建议 + 走势图
+# 第一行：左（等高卡片）+ 右（等高曲线）
 col1, col2 = st.columns([1.5, 2.5])
 
 with col1:
     st.markdown(
         f"""
-        <div style="background:#1e293b; border-radius:16px; padding:20px; text-align:center; height:100%; border:1px solid #334155;">
-            <div style="color:#64748b; font-size:0.9rem; letter-spacing:1px; margin-bottom:10px;">量化总分</div>
-            <div style="font-size:4rem; font-weight:900; color:{'#34d399' if total_display >= 55 else '#f43f5e'}; text-shadow: 0 0 20px rgba(255,255,255,0.1);">
-                {total_display:.1f}
+        <div class="equal-box">
+            <div style="color:#64748b; font-size:0.9rem; letter-spacing:1px; margin-bottom:6px; text-align:center;">量化总分</div>
+            <div style="text-align:center; font-size:4rem; font-weight:900; color:{'#34d399' if total_score >= 60 else '#f43f5e'};">
+                {total_score:.1f}
             </div>
-            <div style="color:#475569; font-size:0.8rem;">
-                满分 100 ｜ {band_text}
-            </div>
-            <div class="{rec_class}" style="margin-top:20px; text-align:left;">
-                <div style="font-weight:bold; font-size:1.1rem; margin-bottom:10px;">{rec_title}</div>
+            <div style="color:#475569; font-size:0.8rem; text-align:center;">满分 100 ｜ {band_text}</div>
+            <div class="rec-card {rec_class} equal-scroll">
+                <div style="font-weight:bold; font-size:1.05rem; margin-bottom:10px;">{rec_title}</div>
                 <div style="font-size:0.95rem; opacity:0.95; line-height:1.55;">{rec_msg}</div>
             </div>
         </div>
@@ -808,31 +766,53 @@ with col1:
     )
 
 with col2:
+    close = data["history"]["Close"]
+    ma20_line = close.rolling(20).mean()
+    ma60_line = close.rolling(60).mean()
+
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
             x=data["history"].index,
-            y=data["history"]["Close"],
+            y=close,
             mode="lines",
-            name="NDX",
+            name="Close",
             line=dict(color="#0ea5e9", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(14, 165, 233, 0.1)",
         )
     )
+    fig.add_trace(
+        go.Scatter(
+            x=data["history"].index,
+            y=ma20_line,
+            mode="lines",
+            name="MA20",
+            line=dict(color="#22c55e", width=1, dash="dot"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=data["history"].index,
+            y=ma60_line,
+            mode="lines",
+            name="MA60",
+            line=dict(color="#f59e0b", width=1, dash="dot"),
+        )
+    )
+
     fig.update_layout(
-        title={"text": f"NDX 纳指走势 (当前: {data['price']:.2f})", "font": {"color": "#e2e8f0"}},
+        title={"text": f"NDX 走势（当前: {data['price']:.2f}）", "font": {"color": "#e2e8f0"}},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=20, r=20, t=40, b=20),
-        height=320,
+        margin=dict(l=20, r=20, t=50, b=20),
+        height=360,
         xaxis=dict(showgrid=False, color="#64748b"),
         yaxis=dict(showgrid=True, gridcolor="#334155", color="#64748b"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# 因子矩阵（你确认的布局：4 + 3）
-st.markdown('<h3 style="margin-top:30px; color:#e2e8f0; font-size:1.2rem;">📊 因子分析矩阵</h3>', unsafe_allow_html=True)
+# 因子矩阵（4 + 3）
+st.markdown('<h3 style="margin-top:24px; color:#e2e8f0; font-size:1.2rem;">📊 因子分析矩阵</h3>', unsafe_allow_html=True)
 
 r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
 with r1_c1:
@@ -843,26 +823,26 @@ with r1_c3:
     render_card("RSI (14)", f"{data['rsi']:.1f}", "相对强弱指标", scores["rsi"], 7)
 with r1_c4:
     vix_value = "—" if data.get("missing_vix", False) else f"{data['vix']:.2f}"
-    vix_sub = "波动率" if not data.get("missing_vix", False) else "缺失（按中性）"
+    vix_sub = "缺失" if data.get("missing_vix", False) else "波动率"
     render_card("恐慌指数 VIX", vix_value, vix_sub, scores["vix"], 8)
 
-st.markdown('<div style="margin-top:15px;"></div>', unsafe_allow_html=True)
+st.markdown('<div style="margin-top:12px;"></div>', unsafe_allow_html=True)
 r2_c1, r2_c2, r2_c3 = st.columns(3)
 with r2_c1:
     u_value = "—" if data.get("missing_us10y", False) else f"{data['us10y']:.2f}%"
-    u_sub = "无风险利率" if not data.get("missing_us10y", False) else "缺失（按中性）"
+    u_sub = "缺失" if data.get("missing_us10y", False) else "无风险利率"
     render_card("10年美债收益率", u_value, u_sub, scores["bond"], 10)
 with r2_c2:
     dx_value = "—" if data.get("missing_dxy", False) else f"{data['dxy']:.2f}"
-    dx_sub = "美元强度" if not data.get("missing_dxy", False) else "缺失（按中性）"
+    dx_sub = "缺失" if data.get("missing_dxy", False) else "美元强度"
     render_card("美元指数 DXY", dx_value, dx_sub, scores["dxy"], 10)
 with r2_c3:
     render_card("趋势得分", f"{scores['trend'][0]:.2f}", "MA20/MA60 位置", scores["trend"], 20)
 
-# 底部指南（按你给的原文）
+# 底部指南（按你指定原文）
 st.markdown(
     """
-    <div style="margin-top:24px; padding:12px; border:1px solid #1e40af; background:rgba(30, 64, 175, 0.1);
+    <div style="margin-top:22px; padding:12px; border:1px solid #1e40af; background:rgba(30, 64, 175, 0.1);
                 border-radius:8px; color:#93c5fd; font-size:0.85rem; line-height:1.6;">
         <strong>基金 A/C 类操作指南：</strong><br>
         • <strong>A类 (前端收费)</strong>：适合长期持有 (&gt;2年)，管理费通常较低。当系统提示“买入/持有”时优先考虑。<br>
