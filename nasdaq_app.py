@@ -3080,7 +3080,7 @@ col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.markdown('<h1 style="color:#34d399; margin-bottom:0;">📊 多资产投资决策台</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="color:#64748b; margin-top:5px;">在同一个页面查看纳斯达克 100、黄金、比特币与恒生科技的环境、位置、动作建议和数据可信度。本页仅作辅助决策，不构成投资建议。</p>',
+        '<p style="color:#64748b; margin-top:5px;">wyh构建的查看纳斯达克 100、黄金、比特币与恒生科技的环境、位置、动作建议和数据可信度数据看板。仅作辅助决策，不构成投资建议。</p>',
         unsafe_allow_html=True,
     )
 
