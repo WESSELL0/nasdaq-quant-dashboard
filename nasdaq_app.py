@@ -492,7 +492,11 @@ st.markdown(
         border: 1px solid #334155;
         border-radius: 12px;
         padding: 16px;
-        height: 100%;
+        height: 190px;
+        min-height: 190px;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
     }
 
     .metric-title {
@@ -516,7 +520,8 @@ st.markdown(
         color: #64748b;
         font-size: 0.75rem;
         margin-top: 6px;
-        line-height: 1.45;
+        line-height: 1.35;
+        min-height: 1.6rem;
     }
 
     .status-badge {
@@ -535,7 +540,7 @@ st.markdown(
         background-color: #334155;
         height: 6px;
         border-radius: 3px;
-        margin-top: 10px;
+        margin-top: auto;
         overflow: hidden;
     }
 
@@ -614,7 +619,7 @@ st.markdown(
     .status-note {
         color: #93c5fd;
         font-size: 0.85rem;
-        margin-top: 10px;
+        margin-top: auto;
         line-height: 1.6;
     }
 
@@ -2917,13 +2922,20 @@ def render_btc_panel() -> None:
     price_mode = st.radio("参考价显示", ["人民币 / 枚", "美元 / 枚"], horizontal=True, key="btc_price_mode")
     selected_price_text = cny_price_text if price_mode == "人民币 / 枚" else usd_price_text
     secondary_price_text = usd_price_text if price_mode == "人民币 / 枚" else cny_price_text
+    price_line = (
+        f"人民币价：{cny_price_text} ｜ 美元价：{usd_price_text}"
+        if price_mode == "人民币 / 枚"
+        else f"美元价：{usd_price_text} ｜ 人民币价：{cny_price_text}"
+    )
     brief_line = f"当前更像{view['position_label']}；{view['chase_label']}。"
     summary_lines = [
+        f"人民币参考价：{cny_price_text}",
+        f"美元参考价：{usd_price_text}",
+        f"当前显示口径：{price_mode}",
         f"波段建议：{view['swing_label']}",
         f"追高提醒：{view['chase_label']}",
         f"20 日分位：{position_text}",
         f"USD/CNY：{usd_cny_text}",
-        f"另一口径参考价：{secondary_price_text}",
     ]
 
     render_summary_chart_section(
@@ -2933,7 +2945,7 @@ def render_btc_panel() -> None:
         composite_score,
         view["action_label"],
         view["environment_label"],
-        f"参考价：{selected_price_text}",
+        price_line,
         brief_line,
         summary_lines,
         rec_class,
@@ -2949,7 +2961,7 @@ def render_btc_panel() -> None:
     tech_bg = "bg-green" if view["technical_score"] >= 60 else ("bg-yellow" if view["technical_score"] >= 45 else "bg-red")
     swing_bg = "bg-green" if view["swing_label"] == "适合" else ("bg-yellow" if view["swing_label"] == "一般" else "bg-red")
     with row1[0]:
-        render_info_card("当前参考价", selected_price_text, f"切换口径：{price_mode}；另一口径 {secondary_price_text}", "参考价", "bg-yellow")
+        render_info_card("当前参考价", selected_price_text, f"当前显示 {price_mode}；另一口径 {secondary_price_text}", "参考价", "bg-yellow")
     with row1[1]:
         render_info_card("环境分", format_number(view["environment_score"], digits=1), "越高表示风险偏好和流动性背景越友好", view["environment_label"], env_bg)
     with row1[2]:
@@ -3080,7 +3092,7 @@ col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.markdown('<h1 style="color:#34d399; margin-bottom:0;">📊 多资产投资决策台</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="color:#64748b; margin-top:5px;">wyh构建的查看纳斯达克 100、黄金、比特币与恒生科技的环境、位置、动作建议和数据可信度数据看板。仅作辅助决策，不构成投资建议。</p>',
+        '<p style="color:#64748b; margin-top:5px;">wyh构建的数据看板。在同一个页面查看纳斯达克 100、黄金、比特币与恒生科技的环境、位置、动作建议和数据可信度。仅作辅助决策，不构成投资建议。</p>',
         unsafe_allow_html=True,
     )
 
@@ -3111,3 +3123,6 @@ with tab_btc:
     render_btc_panel()
 with tab_hstech:
     render_hstech_panel()
+
+
+
